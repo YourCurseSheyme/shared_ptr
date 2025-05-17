@@ -58,8 +58,8 @@ struct ControlBlock : BaseControlBlock<T> {
   void release_shared() override;
   void release_weak() override;
 
-  Deleter deleter;
-  Allocator alloc;
+  [[no_unique_address]] Deleter deleter;
+  [[no_unique_address]] Allocator alloc;
 };
 
 template <typename T, typename Deleter, typename Allocator>
@@ -124,35 +124,42 @@ class SharedPtr {
  public:
   SharedPtr() = default;
 
-  SharedPtr(std::nullptr_t) {}
+  [[maybe_unused]] explicit SharedPtr(std::nullptr_t) {}
 
   template <typename Y>
+    requires std::is_convertible_v<Y*, T*>
   SharedPtr(const SharedPtr<Y>& other);
   SharedPtr(const SharedPtr& other);
 
   template <typename Y>
+    requires std::is_convertible_v<Y*, T*>
   SharedPtr(SharedPtr<Y>&& other);
-  SharedPtr(SharedPtr&& other);
+  SharedPtr(SharedPtr&& other) noexcept;
 
   template <typename Y>
+    requires std::is_convertible_v<Y*, T*>
   SharedPtr(Y* ptr);
 
   template <typename Y, typename Deleter>
+    requires std::is_convertible_v<Y*, T*>
   explicit SharedPtr(Y* ptr, Deleter deleter);
 
   template <typename Y, typename Deleter, typename Allocator>
+    requires std::is_convertible_v<Y*, T*>
   explicit SharedPtr(Y* ptr, Deleter deleter, Allocator alloc);
 
   template <typename Y>
+    requires std::is_convertible_v<Y*, T*>
   SharedPtr& operator=(const SharedPtr<Y>& other);
   SharedPtr& operator=(const SharedPtr& other);
 
   template <typename Y>
+    requires std::is_convertible_v<Y*, T*>
   SharedPtr& operator=(SharedPtr<Y>&& other);
-  SharedPtr& operator=(SharedPtr&& other);
+  SharedPtr& operator=(SharedPtr&& other) noexcept;
 
-  int use_count() const;
-  T* get() const {
+  [[nodiscard]] int use_count() const;
+  [[nodiscard]] T* get() const {
     return control_block_ == nullptr ? nullptr : control_block_->pointer;
   }
 
@@ -184,12 +191,14 @@ class SharedPtr {
 
 template <typename T>
 template <typename Y>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>::SharedPtr(Y* ptr) {
   control_block_ = new details::ControlBlock<T>(ptr);
 }
 
 template <typename T>
 template <typename Y>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>::SharedPtr(const SharedPtr<Y>& other)
     : control_block_(
           dynamic_cast<details::BaseControlBlock<T>*>(other.control_block_)) {
@@ -208,6 +217,7 @@ SharedPtr<T>::SharedPtr(const SharedPtr& other)
 
 template <typename T>
 template <typename Y>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>::SharedPtr(SharedPtr<Y>&& other)
     : control_block_(
           dynamic_cast<details::BaseControlBlock<T>*>(other.control_block_)) {
@@ -215,13 +225,14 @@ SharedPtr<T>::SharedPtr(SharedPtr<Y>&& other)
 }
 
 template <typename T>
-SharedPtr<T>::SharedPtr(SharedPtr&& other)
+SharedPtr<T>::SharedPtr(SharedPtr&& other) noexcept
     : control_block_(other.control_block_) {
   other.control_block_ = nullptr;
 }
 
 template <typename T>
 template <typename Y, typename Deleter>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>::SharedPtr(Y* ptr, Deleter deleter) {
   control_block_ =
       new details::ControlBlock<T, Deleter>(ptr, std::move(deleter));
@@ -229,6 +240,7 @@ SharedPtr<T>::SharedPtr(Y* ptr, Deleter deleter) {
 
 template <typename T>
 template <typename Y, typename Deleter, typename Allocator>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>::SharedPtr(Y* ptr, Deleter deleter, Allocator alloc) {
   using ControlBlockType = details::ControlBlock<Y, Deleter, Allocator>;
   using ControlBlockAlloc = typename std::allocator_traits<
@@ -251,6 +263,7 @@ SharedPtr<T>::SharedPtr(Y* ptr, Deleter deleter, Allocator alloc) {
 
 template <typename T>
 template <typename Y>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>& SharedPtr<T>::operator=(const SharedPtr<Y>& other) {
   if (control_block_ != nullptr) {
     control_block_->decrease_shared_counter();
@@ -279,6 +292,7 @@ SharedPtr<T>& SharedPtr<T>::operator=(const SharedPtr& other) {
 
 template <typename T>
 template <typename Y>
+  requires std::is_convertible_v<Y*, T*>
 SharedPtr<T>& SharedPtr<T>::operator=(SharedPtr<Y>&& other) {
   if (control_block_ != nullptr) {
     control_block_->decrease_shared_counter();
@@ -290,7 +304,7 @@ SharedPtr<T>& SharedPtr<T>::operator=(SharedPtr<Y>&& other) {
 }
 
 template <typename T>
-SharedPtr<T>& SharedPtr<T>::operator=(SharedPtr&& other) {
+SharedPtr<T>& SharedPtr<T>::operator=(SharedPtr&& other) noexcept {
   if (this != &other) {
     if (control_block_ != nullptr) {
       control_block_->decrease_shared_counter();
@@ -352,15 +366,17 @@ class WeakPtr {
 
   WeakPtr(const WeakPtr& other);
 
-  WeakPtr(const SharedPtr<T>& other);
+  explicit WeakPtr(const SharedPtr<T>& other);
 
-  WeakPtr(WeakPtr&& other);
+  WeakPtr(WeakPtr&& other) noexcept;
 
   WeakPtr& operator=(const WeakPtr& other);
 
-  WeakPtr& operator=(WeakPtr&& other);
+  WeakPtr& operator=(WeakPtr&& other) noexcept;
 
-  bool expired() const { return control_block_->shared_count == 0; }
+  [[nodiscard]] bool expired() const {
+    return control_block_->shared_count == 0;
+  }
 
   SharedPtr<T> lock() const;
 
@@ -385,18 +401,15 @@ WeakPtr<T>::WeakPtr(const SharedPtr<T>& other)
 }
 
 template <typename T>
-WeakPtr<T>::WeakPtr(WeakPtr<T>&& other) : control_block_(other.control_block_) {
+WeakPtr<T>::WeakPtr(WeakPtr<T>&& other) noexcept : control_block_(other.control_block_) {
   other.control_block_ = nullptr;
 }
 
 template <typename T>
-WeakPtr<T>& WeakPtr<T>::operator=(const WeakPtr<T>& other) {
-  control_block_ = other.control_block_;
-  return *this;
-}
+WeakPtr<T>& WeakPtr<T>::operator=(const WeakPtr<T>& other) = default;
 
 template <typename T>
-WeakPtr<T>& WeakPtr<T>::operator=(WeakPtr<T>&& other) {
+WeakPtr<T>& WeakPtr<T>::operator=(WeakPtr<T>&& other) noexcept {
   control_block_ = std::move(other.control_block_);
   return *this;
 }
